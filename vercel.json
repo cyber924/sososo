@@ -1,0 +1,34 @@
+{
+  "version": 2,
+  "functions": {
+    "api/index.ts": {
+      "runtime": "@vercel/node"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/sitemap.xml",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/robots.txt",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/rss.xml",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/api/:match*",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/blog/:id",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/((?!assets/|vite.svg|favicon.ico).*|)",
+      "destination": "/api/index"
+    }
+  ]
+}
