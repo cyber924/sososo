@@ -71,7 +71,7 @@ export default function PostCard({ post, onClick, isHero = false }: PostCardProp
               <div className="flex items-center gap-2 text-xs font-mono text-neutral-500">
                 <span className="font-bold text-neutral-800">{post.author}</span>
                 <span>•</span>
-                <span>{post.createdAt}</span>
+                <span>{post.createdAt.slice(0, 10).replace(/-/g, '.')}</span>
               </div>
 
               <h2 className="font-serif text-xl sm:text-2xl md:text-3xl font-black text-neutral-900 leading-tight group-hover:text-rose-600 transition-colors duration-200">
@@ -148,7 +148,7 @@ export default function PostCard({ post, onClick, isHero = false }: PostCardProp
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-xs font-mono text-neutral-400">
               <span className="font-bold text-neutral-800">{post.author}</span>
-              <span>{post.createdAt}</span>
+              <span>{post.createdAt.slice(0, 10).replace(/-/g, '.')}</span>
             </div>
 
             <h3 className="font-serif text-base sm:text-lg font-black text-neutral-900 leading-snug group-hover:text-rose-600 transition-colors duration-200 line-clamp-2">
@@ -180,3 +180,4 @@ export default function PostCard({ post, onClick, isHero = false }: PostCardProp
     </a>
   );
 }
+

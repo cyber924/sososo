@@ -14,9 +14,11 @@ export interface Post {
   category: CategoryType;
   imageUrl: string;
   author: string;
-  createdAt: string; // YYYY.MM.DD
+  createdAt: string; // ISO timestamp; format only for display
+  updatedAt?: string;
   readTime: string;
   featured: boolean;
   views: number;
   tags: string[];
 }
+

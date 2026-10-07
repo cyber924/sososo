@@ -944,7 +944,7 @@ export default function App() {
                                       {post.category}
                                     </span>
                                     <span className="text-[9px] font-mono text-neutral-400">
-                                      {post.createdAt}
+                                      {post.createdAt.slice(0, 10).replace(/-/g, '.')}
                                     </span>
                                   </div>
                                   <h3 className="font-serif font-black text-xs sm:text-sm text-neutral-950 group-hover:text-rose-600 transition-colors leading-snug truncate">
@@ -1546,7 +1546,7 @@ export default function App() {
                               {editorsPickPost.author}
                             </span>
                             <span className="text-[8px] font-mono text-neutral-400">
-                              {editorsPickPost.createdAt}
+                              {editorsPickPost.createdAt.slice(0, 10).replace(/-/g, '.')}
                             </span>
                           </div>
                         </div>

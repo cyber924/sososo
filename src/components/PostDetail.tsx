@@ -21,7 +21,7 @@ export default function PostDetail({ post, onBack }: PostDetailProps) {
   // Dynamic Client-side SEO update for SPA transitions
   useEffect(() => {
     const siteUrl = window.location.origin;
-    const canonicalUrl = `${siteUrl}/blog/${post.id}`;
+    const canonicalUrl = `${siteUrl}/blog/${encodeURIComponent(post.id)}`;
     const siteName = '소소한 웹진';
     const pageTitle = `${post.title} | ${siteName}`;
     const pageDesc = post.excerpt || post.subTitle || '소소한 웹진 프리미엄 에디토리얼 칼럼';
@@ -58,7 +58,7 @@ export default function PostDetail({ post, onBack }: PostDetailProps) {
     setMetaTag('property', 'og:image', post.imageUrl);
     setMetaTag('property', 'og:url', canonicalUrl);
     setMetaTag('property', 'article:published_time', post.createdAt);
-    setMetaTag('property', 'article:modified_time', post.createdAt);
+    setMetaTag('property', 'article:modified_time', post.updatedAt || post.createdAt);
 
     // 4. Schema.org BlogPosting & BreadcrumbList JSON-LD
     const blogPostingData = {
@@ -67,8 +67,8 @@ export default function PostDetail({ post, onBack }: PostDetailProps) {
       "headline": post.title,
       "description": pageDesc,
       "image": post.imageUrl,
-      "datePublished": post.createdAt,
-      "dateModified": post.createdAt,
+      ...(post.createdAt ? { datePublished: post.createdAt } : {}),
+      ...((post.updatedAt || post.createdAt) ? { dateModified: post.updatedAt || post.createdAt } : {}),
       "mainEntityOfPage": {
         "@type": "WebPage",
         "@id": canonicalUrl
@@ -346,7 +346,7 @@ export default function PostDetail({ post, onBack }: PostDetailProps) {
           <div className="flex items-center gap-3">
             <span className="font-bold text-neutral-900">{post.author}</span>
             <span>•</span>
-            <span>작성일 {post.createdAt}</span>
+            <span>작성일 {post.createdAt.slice(0, 10).replace(/-/g, '.')}</span>
           </div>
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1">
@@ -411,3 +411,4 @@ export default function PostDetail({ post, onBack }: PostDetailProps) {
     </article>
   );
 }
+

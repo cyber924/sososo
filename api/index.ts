@@ -370,10 +370,10 @@ app.get('/blog/:id', async (req: Request, res: Response) => {
     <meta name="twitter:description" content="${escapeHtml(pageDescription)}" />
     <meta name="twitter:image" content="${escapeHtml(post.imageUrl)}" />
     <meta name="robots" content="index, follow" />
-    <script type="application/ld+json">
+    <script id="seo-blog-posting" type="application/ld+json">
 ${safeJson(blogPostingJsonLd)}
     </script>
-    <script type="application/ld+json">
+    <script id="seo-breadcrumb" type="application/ld+json">
 ${safeJson(breadcrumbJsonLd)}
     </script>
     `.trim();
