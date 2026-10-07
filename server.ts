@@ -1,12 +1,14 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
+import express from 'express';
 import app from './api/index.ts';
 
-const PORT = Number(process.env.PORT) || 3000;
-
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[Server] Listening on http://0.0.0.0:${PORT}`);
-});
+async function start() {
+  const server = express();
+  if (process.env.NODE_ENV !== 'production') {
+    const { createServer } = await import('vite');
+    const vite = await createServer({ server: { middlewareMode: true }, appType: 'spa' });
+    server.use(vite.middlewares);
+  }
+  server.use(app);
+  server.listen(Number(process.env.PORT) || 3000, '0.0.0.0');
+}
+start().catch(console.error);

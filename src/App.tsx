@@ -8,9 +8,7 @@ import Header from './components/Header';
 import PostCard from './components/PostCard';
 import PostDetail from './components/PostDetail';
 import ImageGuard from './components/ImageGuard';
-import { mockPosts } from './mockData';
 import { Post, CategoryType } from './types';
-import { fetchOriginalPostsFromHub } from './lib/firebase';
 import { 
   Database, 
   Sparkles, 
@@ -31,13 +29,14 @@ import {
 declare global {
   interface Window {
     __INITIAL_POST__?: Post | null;
+    __INITIAL_POSTS__?: Post[];
     __INITIAL_POST_NOT_FOUND__?: boolean;
     __INITIAL_SITE_URL__?: string;
   }
 }
 
 export default function App() {
-  const [posts, setPosts] = useState<Post[]>(mockPosts);
+  const [posts, setPosts] = useState<Post[]>(() => window.__INITIAL_POSTS__ || []);
   const [isLoading, setIsLoading] = useState(true);
   const [isLiveConnected, setIsLiveConnected] = useState(false);
   const [activeCategory, setActiveCategory] = useState<CategoryType | '전체'>('전체');
@@ -332,12 +331,22 @@ export default function App() {
   // Function to load posts from central hub
   const loadHubPosts = async (showLoadingIndicator = true) => {
     if (showLoadingIndicator) setIsLoading(true);
-    const hubPosts = await fetchOriginalPostsFromHub();
+    let hubPosts: Post[] = [];
+    try {
+      const response = await fetch('/api/posts');
+      if (!response.ok) throw new Error(`Public posts HTTP ${response.status}`);
+      hubPosts = await response.json();
+    } catch (error) {
+      console.error('Public posts unavailable:', error);
+      setIsLiveConnected(false);
+      if (showLoadingIndicator) setIsLoading(false);
+      return;
+    }
     if (hubPosts && hubPosts.length > 0) {
       setPosts(hubPosts);
       setIsLiveConnected(true);
     } else {
-      setPosts(mockPosts);
+      setPosts([]);
       setIsLiveConnected(false);
     }
     setLastUpdatedTimestamp(new Date());
@@ -1645,3 +1654,4 @@ export default function App() {
     </div>
   );
 }
+

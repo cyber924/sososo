@@ -8,8 +8,34 @@ import type { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { collection, doc, getDoc, getDocs, orderBy, query } from 'firebase/firestore';
-import { db } from '../src/lib/firebase.ts';
+// Server reads use Firestore HTTPS directly: no browser TypeScript imports,
+// gRPC transport, service-account credentials, or offline cache fallback.
+const FIRESTORE_URL = 'https://firestore.googleapis.com/v1/projects/weather-49c44/databases/ai-studio-aiwebzineblog-dadec710-29d0-43c4-a8a2-3bed7e263772/documents';
+
+function decodeValue(value: any): any {
+  if ('stringValue' in value) return value.stringValue;
+  if ('timestampValue' in value) return value.timestampValue;
+  if ('booleanValue' in value) return value.booleanValue;
+  if ('integerValue' in value) return Number(value.integerValue);
+  if ('doubleValue' in value) return value.doubleValue;
+  if ('arrayValue' in value) return (value.arrayValue.values || []).map(decodeValue);
+  if ('mapValue' in value) return decodeFields(value.mapValue.fields || {});
+  return null;
+}
+function decodeFields(fields: Record<string, any>): Record<string, any> {
+  return Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, decodeValue(value)]));
+}
+async function firestoreRequest(url: string, body?: any): Promise<any> {
+  const response = await fetch(url, {
+    method: body ? 'POST' : 'GET',
+    headers: body ? { 'Content-Type': 'application/json' } : {},
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(15000),
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`Firestore HTTP ${response.status}`);
+  return response.json();
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -50,148 +76,88 @@ function escapeXml(str: string): string {
     .replace(/'/g, '&apos;');
 }
 
-// Robust Firestore Timestamp / String / Date normalization
-function formatIsoDate(dateVal?: any): string {
-  if (!dateVal) return new Date().toISOString();
+// Never invent modification dates; omit lastmod if the source has no valid date.
+function formatIsoDate(value?: any): string {
   try {
-    // 1. If it is a Firestore Timestamp
-    if (dateVal && typeof dateVal.toDate === 'function') {
-      return dateVal.toDate().toISOString();
-    }
-    // 2. If it is a raw Timestamp representation
-    if (dateVal && typeof dateVal.seconds === 'number') {
-      return new Date(dateVal.seconds * 1000).toISOString();
-    }
-    // 3. String or number/Date parse
-    const d = new Date(dateVal);
-    if (!isNaN(d.getTime())) {
-      return d.toISOString();
-    }
-  } catch (e) {
-    console.warn('[Server] Error normalizing date:', dateVal, e);
-  }
-  return new Date().toISOString();
+    if (value?.toDate) value = value.toDate();
+    else if (typeof value?.seconds === 'number') value = value.seconds * 1000;
+    if (value === undefined || value === null || value === '') return '';
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date.toISOString() : '';
+  } catch { return ''; }
 }
-
+function isPublicPost(data: any): boolean {
+  // Legacy central-hub posts have no publication flags and are already public.
+  if (data.status && !['published', 'public'].includes(data.status)) return false;
+  if (data.isPublished === false || data.visibility === 'private' || data.visibility === 'draft') return false;
+  const date = data.publishAt ?? data.publishedAt ?? data.createdAt;
+  const iso = formatIsoDate(date);
+  if (date && !iso) return false;
+  return !iso || new Date(iso).getTime() <= Date.now();
+}
 interface SanitizedPost {
-  id: string;
-  title: string;
-  subTitle?: string;
-  excerpt: string;
-  content: string;
-  category: string;
-  imageUrl: string;
-  author: string;
-  createdAt: string;
-  updatedAt: string;
-  readTime: string;
-  featured: boolean;
-  views: number;
-  tags: string[];
+  id: string; title: string; subTitle?: string; excerpt: string; content: string;
+  category: string; imageUrl: string; author: string; createdAt: string;
+  updatedAt: string; readTime: string; featured: boolean; views: number; tags: string[];
 }
-
+function sanitizePost(document: any): SanitizedPost | null {
+  const data = decodeFields(document.fields || {});
+  if (!isPublicPost(data) || typeof data.title !== 'string' || !data.title.trim()) return null;
+  const categoryMap: Record<string, string> = { '기술/IT': 'IT', '경제/금융': '경제', '연예/드라마': '드라마', '사회/문화': '사회' };
+  const content = typeof data.content === 'string' ? data.content : '';
+  return {
+    id: document.name.split('/').pop(), title: data.title,
+    subTitle: data.subtitle || data.subTitle || undefined,
+    excerpt: data.summary || data.excerpt || '소소한 웹진 에디토리얼 칼럼',
+    content, category: categoryMap[data.category] || data.category || 'IT',
+    imageUrl: data.coverImage || data.imageUrl || 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&q=80&w=1200',
+    author: typeof data.author === 'string' ? data.author : data.author?.displayName || SITE_NAME,
+    createdAt: formatIsoDate(data.publishedAt || data.publishAt || data.createdAt),
+    updatedAt: formatIsoDate(data.updatedAt || data.modifiedAt || data.publishedAt || data.publishAt || data.createdAt),
+    readTime: `${Math.max(1, Math.round(content.replace(/<[^>]*>/g, '').length / 450))} min read`,
+    featured: Boolean(data.featured), views: Number(data.views) || 0,
+    tags: Array.isArray(data.tags) ? data.tags.map(String) : [],
+  };
+}
 async function getPostById(id: string): Promise<SanitizedPost | null> {
-  // Directly retrieve from Firestore 'posts' collection
-  const docRef = doc(db, 'posts', id);
-  const docSnap = await getDoc(docRef);
-
-  if (docSnap.exists()) {
-    const data = docSnap.data();
-
-    // Filter out draft, private, unpublished posts
-    if (data.status === 'draft' || data.status === 'private' || data.isPublished === false) {
-      return null;
-    }
-
-    // Filter out scheduled future posts
-    if (data.createdAt && new Date(data.createdAt).getTime() > Date.now()) {
-      return null;
-    }
-
-    let authorName = '소소한 웹진';
-    if (data.author) {
-      if (typeof data.author === 'object') {
-        authorName = data.author.displayName || data.author.email || '소소한 웹진';
-      } else if (typeof data.author === 'string') {
-        authorName = data.author;
-      }
-    }
-
-    const createdAtIso = formatIsoDate(data.createdAt);
-    const updatedAtIso = formatIsoDate(data.updatedAt || data.modifiedAt || data.publishedAt || data.createdAt);
-
-    return {
-      id: docSnap.id,
-      title: typeof data.title === 'string' ? data.title : '무제 기사',
-      subTitle: typeof data.subtitle === 'string' ? data.subtitle : (typeof data.subTitle === 'string' ? data.subTitle : undefined),
-      excerpt: typeof data.summary === 'string' ? data.summary : (typeof data.excerpt === 'string' ? data.excerpt : '소소한 웹진 고품격 에디토리얼 칼럼'),
-      content: typeof data.content === 'string' ? data.content : '',
-      category: typeof data.category === 'string' ? data.category : 'IT',
-      imageUrl: data.coverImage || data.imageUrl || 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&q=80&w=1200',
-      author: authorName,
-      createdAt: createdAtIso,
-      updatedAt: updatedAtIso,
-      readTime: '4 min read',
-      featured: Boolean(data.featured),
-      views: Number(data.views) || 0,
-      tags: Array.isArray(data.tags) ? data.tags.map(t => String(t)) : ['에디토리얼', '웹진']
-    };
-  }
-
-  return null;
+  const document = await firestoreRequest(`${FIRESTORE_URL}/posts/${encodeURIComponent(id)}`);
+  return document ? sanitizePost(document) : null;
 }
-
+let cachedPosts: SanitizedPost[] | null = null;
+let cachedAt = 0;
+let pendingPosts: Promise<SanitizedPost[]> | null = null;
 async function getAllPublicPosts(): Promise<SanitizedPost[]> {
-  const posts: SanitizedPost[] = [];
-  const postsRef = collection(db, 'posts');
-  const q = query(postsRef, orderBy('createdAt', 'desc'));
-  const querySnapshot = await getDocs(q);
-
-  querySnapshot.forEach((docSnap) => {
-    const data = docSnap.data();
-
-    // Filter out draft, private, unpublished posts
-    if (data.status === 'draft' || data.status === 'private' || data.isPublished === false) {
-      return;
-    }
-
-    // Filter out scheduled future posts
-    if (data.createdAt && new Date(data.createdAt).getTime() > Date.now()) {
-      return;
-    }
-
-    let authorName = '소소한 웹진';
-    if (data.author) {
-      if (typeof data.author === 'object') {
-        authorName = data.author.displayName || data.author.email || '소소한 웹진';
-      } else if (typeof data.author === 'string') {
-        authorName = data.author;
-      }
-    }
-
-    const createdAtIso = formatIsoDate(data.createdAt);
-    const updatedAtIso = formatIsoDate(data.updatedAt || data.modifiedAt || data.publishedAt || data.createdAt);
-
-    posts.push({
-      id: docSnap.id,
-      title: typeof data.title === 'string' ? data.title : '무제 기사',
-      subTitle: typeof data.subtitle === 'string' ? data.subtitle : (typeof data.subTitle === 'string' ? data.subTitle : undefined),
-      excerpt: typeof data.summary === 'string' ? data.summary : (typeof data.excerpt === 'string' ? data.excerpt : '소소한 웹진 고품격 에디토리얼 칼럼'),
-      content: typeof data.content === 'string' ? data.content : '',
-      category: typeof data.category === 'string' ? data.category : 'IT',
-      imageUrl: data.coverImage || data.imageUrl || 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&q=80&w=1200',
-      author: authorName,
-      createdAt: createdAtIso,
-      updatedAt: updatedAtIso,
-      readTime: '4 min read',
-      featured: Boolean(data.featured),
-      views: Number(data.views) || 0,
-      tags: Array.isArray(data.tags) ? data.tags.map(t => String(t)) : ['에디토리얼', '웹진']
-    });
-  });
-
-  return posts;
+  if (cachedPosts && Date.now() - cachedAt < 60000) return cachedPosts;
+  if (!pendingPosts) {
+    pendingPosts = (async () => {
+      const rows = await firestoreRequest(`${FIRESTORE_URL}:runQuery`, { structuredQuery: {
+        from: [{ collectionId: 'posts' }],
+        orderBy: [{ field: { fieldPath: 'createdAt' }, direction: 'DESCENDING' }],
+      }});
+      cachedPosts = rows.filter((row: any) => row.document).map((row: any) => sanitizePost(row.document)).filter(Boolean);
+      cachedAt = Date.now();
+      return cachedPosts!;
+    })().finally(() => { pendingPosts = null; });
+  }
+  return pendingPosts;
 }
+function safeJson(value: any): string {
+  return JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+}
+function renderArticle(post: SanitizedPost, siteUrl: string): string {
+  // Keep source content as text here; React renders the designed view afterwards.
+  // Escaping prevents stored HTML/scripts from executing in the server preview.
+  const paragraphs = post.content.replace(/<[^>]*>/g, '').split(/\n+/).filter(Boolean)
+    .map(text => `<p>${escapeHtml(text)}</p>`).join('');
+  return `<article><a href="${siteUrl}/">${SITE_NAME}</a><h1>${escapeHtml(post.title)}</h1><p>${escapeHtml(post.excerpt)}</p><img src="${escapeHtml(post.imageUrl)}" alt="${escapeHtml(post.title)}" style="max-width:100%">${paragraphs}</article>`;
+}
+function renderPostLinks(posts: SanitizedPost[], siteUrl: string): string {
+  return `<main><h1>${SITE_NAME}</h1><ul>${posts.map(post => `<li><a href="${siteUrl}/blog/${encodeURIComponent(post.id)}">${escapeHtml(post.title)}</a><p>${escapeHtml(post.excerpt)}</p></li>`).join('')}</ul></main>`;
+}
+app.get('/api/posts', async (_req, res) => {
+  try { res.set('Cache-Control', 'public, max-age=60, s-maxage=60').json(await getAllPublicPosts()); }
+  catch (error) { console.error('[Server] Public posts unavailable:', error); res.status(503).set('Cache-Control', 'no-store').json({ error: 'Public posts temporarily unavailable' }); }
+});
 
 // 1. Dynamic robots.txt
 app.get('/robots.txt', (req: Request, res: Response) => {
@@ -207,18 +173,15 @@ app.get('/sitemap.xml', async (req: Request, res: Response) => {
     const siteUrl = getBaseUrl(req);
     const posts = await getAllPublicPosts();
 
-    let latestSiteMod = new Date().toISOString();
-    if (posts.length > 0 && posts[0].updatedAt) {
-      latestSiteMod = posts[0].updatedAt;
-    }
+    const latestSiteMod = posts.map(post => post.updatedAt).filter(Boolean).sort().at(-1);
 
     let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
     xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
 
     // Main Homepage
     xml += `  <url>\n`;
-    xml += `    <loc>${siteUrl}</loc>\n`;
-    xml += `    <lastmod>${latestSiteMod}</lastmod>\n`;
+    xml += `    <loc>${escapeXml(siteUrl + "/")}</loc>\n`;
+    if (latestSiteMod) xml += `    <lastmod>${latestSiteMod}</lastmod>\n`;
     xml += `    <changefreq>daily</changefreq>\n`;
     xml += `    <priority>1.0</priority>\n`;
     xml += `  </url>\n`;
@@ -229,7 +192,7 @@ app.get('/sitemap.xml', async (req: Request, res: Response) => {
       const safeLoc = escapeXml(`${siteUrl}/blog/${safeId}`);
       xml += `  <url>\n`;
       xml += `    <loc>${safeLoc}</loc>\n`;
-      xml += `    <lastmod>${post.updatedAt}</lastmod>\n`;
+      if (post.updatedAt) xml += `    <lastmod>${post.updatedAt}</lastmod>\n`;
       xml += `    <changefreq>weekly</changefreq>\n`;
       xml += `    <priority>0.8</priority>\n`;
       xml += `  </url>\n`;
@@ -242,7 +205,7 @@ app.get('/sitemap.xml', async (req: Request, res: Response) => {
     res.send(xml);
   } catch (err: any) {
     console.error('[Server] Sitemap generation error:', err);
-    res.status(500).type('text/plain').send(`Error generating sitemap.xml: ${err.message || err}`);
+    res.status(503).set('Cache-Control', 'no-store').type('text/plain').send('Sitemap temporarily unavailable');
   }
 });
 
@@ -289,28 +252,9 @@ app.get('/rss.xml', async (req: Request, res: Response) => {
   }
 });
 
-// Dynamic Vite handler loading ONLY in non-production/non-Vercel environment
-let vite: any;
 const isProd = process.env.NODE_ENV === 'production' || !!process.env.VERCEL;
-
-if (!isProd) {
-  // Load Vite dynamically to keep production serverless runtime completely independent of Vite
-  import('vite').then(({ createServer: createViteServer }) => {
-    createViteServer({
-      server: { middlewareMode: true },
-      appType: 'custom',
-    }).then((v) => {
-      vite = v;
-      app.use(vite.middlewares);
-    });
-  }).catch((err) => {
-    console.error('Failed to load Vite dynamically:', err);
-  });
-} else {
-  // Locate static dist folder
-  const distPath = path.resolve(process.cwd(), 'dist');
-  app.use(express.static(distPath, { index: false }));
-}
+const templatePath = isProd ? path.resolve(process.cwd(), 'dist/index.html') : path.resolve(process.cwd(), 'index.html');
+app.use(express.static(path.resolve(process.cwd(), 'dist'), { index: false }));
 
 // 4. Detailed Blog Post route with Full SSR Meta Pre-rendering & Real 404
 app.get('/blog/:id', async (req: Request, res: Response) => {
@@ -321,15 +265,10 @@ app.get('/blog/:id', async (req: Request, res: Response) => {
     const post = await getPostById(postId);
 
     let template = '';
-    const indexPath = isProd
-      ? path.resolve(process.cwd(), 'dist', 'index.html')
-      : path.resolve(process.cwd(), 'index.html');
+    const indexPath = templatePath;
 
     try {
       template = fs.readFileSync(indexPath, 'utf-8');
-      if (!isProd && vite) {
-        template = await vite.transformIndexHtml(req.originalUrl, template);
-      }
     } catch (e: any) {
       console.error('[Server] Failed to read index.html template:', e);
       return res.status(500).send('Server Error loading template');
@@ -373,8 +312,8 @@ app.get('/blog/:id', async (req: Request, res: Response) => {
       "headline": post.title,
       "description": pageDescription,
       "image": post.imageUrl,
-      "datePublished": post.createdAt,
-      "dateModified": post.updatedAt,
+      ...(post.createdAt ? { datePublished: post.createdAt } : {}),
+      ...(post.updatedAt ? { dateModified: post.updatedAt } : {}),
       "mainEntityOfPage": {
         "@type": "WebPage",
         "@id": canonicalUrl
@@ -432,16 +371,16 @@ app.get('/blog/:id', async (req: Request, res: Response) => {
     <meta name="twitter:image" content="${escapeHtml(post.imageUrl)}" />
     <meta name="robots" content="index, follow" />
     <script type="application/ld+json">
-${JSON.stringify(blogPostingJsonLd, null, 2)}
+${safeJson(blogPostingJsonLd)}
     </script>
     <script type="application/ld+json">
-${JSON.stringify(breadcrumbJsonLd, null, 2)}
+${safeJson(breadcrumbJsonLd)}
     </script>
     `.trim();
 
     const postState = `
     <script>
-      window.__INITIAL_POST__ = ${JSON.stringify(post)};
+      window.__INITIAL_POST__ = ${safeJson(post)};
       window.__INITIAL_POST_NOT_FOUND__ = false;
       window.__INITIAL_SITE_URL__ = ${JSON.stringify(siteUrl)};
     </script>
@@ -450,26 +389,25 @@ ${JSON.stringify(breadcrumbJsonLd, null, 2)}
     let html = template;
     html = html.replace(/<!-- SSR_HEAD_START -->[\s\S]*?<!-- SSR_HEAD_END -->/, postHead);
     html = html.replace(/<!-- SSR_BODY_STATE -->/, postState);
+    html = html.replace('<div id="root"></div>', `<div id="root">${renderArticle(post, siteUrl)}</div>`);
 
     return res.status(200).send(html);
   } catch (err: any) {
     console.error('[Server] Blog page pre-render error:', err);
-    res.status(500).type('text/plain').send(`Error loading blog page: ${err.message || err}`);
+    res.status(503).set('Cache-Control', 'no-store').type('text/plain').send('Article temporarily unavailable');
   }
 });
 
 // 5. Catch-all route (Homepage and others)
 app.get('*', async (req: Request, res: Response) => {
+  if (!['/', '/blog', '/api/index'].includes(req.path)) {
+    return res.status(404).set('X-Robots-Tag', 'noindex').send('Page not found');
+  }
   const siteUrl = getBaseUrl(req);
-  const indexPath = isProd
-    ? path.resolve(process.cwd(), 'dist', 'index.html')
-    : path.resolve(process.cwd(), 'index.html');
+  const indexPath = templatePath;
 
   try {
     let template = fs.readFileSync(indexPath, 'utf-8');
-    if (!isProd && vite) {
-      template = await vite.transformIndexHtml(req.originalUrl, template);
-    }
 
     const homeHead = `
     <title>${SITE_NAME} - 전문적인 내용과 지식을 담은 명품 웹진</title>
@@ -481,7 +419,6 @@ app.get('*', async (req: Request, res: Response) => {
     <meta property="og:url" content="${siteUrl}" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="robots" content="index, follow" />
-    <meta name="last-modified" content="${new Date().toISOString()}" />
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
@@ -489,15 +426,16 @@ app.get('*', async (req: Request, res: Response) => {
       "name": "${SITE_NAME}",
       "url": "${siteUrl}",
       "description": "전문적인 내용과 지식을 깊이 있게 전하는 프리미엄 명품 에디토리얼 웹진 서비스",
-      "dateModified": "${new Date().toISOString()}",
       "inLanguage": "ko-KR"
     }
     </script>
     `.trim();
 
+    const posts = await getAllPublicPosts();
     const homeState = `
     <script>
       window.__INITIAL_POST__ = null;
+      window.__INITIAL_POSTS__ = ${safeJson(posts)};
       window.__INITIAL_POST_NOT_FOUND__ = false;
       window.__INITIAL_SITE_URL__ = ${JSON.stringify(siteUrl)};
     </script>
@@ -506,6 +444,7 @@ app.get('*', async (req: Request, res: Response) => {
     let html = template;
     html = html.replace(/<!-- SSR_HEAD_START -->[\s\S]*?<!-- SSR_HEAD_END -->/, homeHead);
     html = html.replace(/<!-- SSR_BODY_STATE -->/, homeState);
+    html = html.replace('<div id="root"></div>', `<div id="root">${renderPostLinks(posts, siteUrl)}</div>`);
 
     res.status(200).send(html);
   } catch (e: any) {

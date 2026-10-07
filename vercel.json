@@ -1,29 +1,38 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-  "rewrites": [
+  "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "installCommand": "npm ci --include=optional",
+  "functions": {
+    "api/index.ts": {
+      "includeFiles": "dist/**"
+    }
+  },
+  "routes": [
     {
-      "source": "/sitemap.xml",
-      "destination": "/api/index"
+      "src": "/",
+      "dest": "/api/index"
     },
     {
-      "source": "/robots.txt",
-      "destination": "/api/index"
+      "src": "/(sitemap\\.xml|robots\\.txt|rss\\.xml)",
+      "dest": "/api/index"
     },
     {
-      "source": "/rss.xml",
-      "destination": "/api/index"
+      "src": "/blog(?:/.*)?",
+      "dest": "/api/index"
     },
     {
-      "source": "/api/:match*",
-      "destination": "/api/index"
+      "src": "/api/(.*)",
+      "dest": "/api/index"
     },
     {
-      "source": "/blog/:id",
-      "destination": "/api/index"
+      "handle": "filesystem"
     },
     {
-      "source": "/((?!assets/|vite.svg|favicon.ico).*|)",
-      "destination": "/api/index"
+      "src": "/(.*)",
+      "dest": "/api/index"
     }
   ]
 }
