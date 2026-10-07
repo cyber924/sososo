@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import Header from './components/Header';
 import PostCard from './components/PostCard';
 import PostDetail from './components/PostDetail';
@@ -374,6 +374,19 @@ export default function App() {
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const postsPerPage = 6;
+  const pendingPageScroll = useRef(false);
+
+  // Scroll after React commits the selected page, directly to its article grid.
+  useEffect(() => {
+    if (!pendingPageScroll.current) return;
+    pendingPageScroll.current = false;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById('article-page-results')?.scrollIntoView({
+        behavior: 'instant', block: 'start',
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [currentPage]);
 
   // Wisdom Quotes Pool for Random Display
   const wisdomQuotes = useMemo(() => [
@@ -1360,6 +1373,7 @@ export default function App() {
                       </div>
                     )}
 
+                    <div id="article-page-results" className="scroll-mt-6">
                     {/* Regular Article Grid */}
                     {regularPosts.length > 0 && (
                       <div className="space-y-6">
@@ -1394,14 +1408,16 @@ export default function App() {
                       </div>
                     )}
 
+                    </div>
+
                     {/* Highly Aesthetic Editorial Pagination UI */}
                     {totalPages > 1 && (
                       <div className="flex items-center justify-center gap-2 pt-10 border-t border-neutral-200 mt-8 font-mono text-xs">
                         <button
+                          type="button"
                           onClick={() => {
+                            pendingPageScroll.current = true;
                             setCurrentPage(prev => Math.max(prev - 1, 1));
-                            const gridElement = document.getElementById('webzine-list');
-                            if (gridElement) gridElement.scrollIntoView({ behavior: 'smooth' });
                           }}
                           disabled={currentPage === 1}
                           className={`px-3 py-1.5 border transition-all ${
@@ -1417,10 +1433,12 @@ export default function App() {
                           {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
                             <button
                               key={pageNum}
+                              type="button"
+                              aria-current={currentPage === pageNum ? 'page' : undefined}
                               onClick={() => {
+                                if (currentPage === pageNum) return;
+                                pendingPageScroll.current = true;
                                 setCurrentPage(pageNum);
-                                const gridElement = document.getElementById('webzine-list');
-                                if (gridElement) gridElement.scrollIntoView({ behavior: 'smooth' });
                               }}
                               className={`w-8 h-8 flex items-center justify-center border transition-all text-xs ${
                                 currentPage === pageNum
@@ -1435,9 +1453,8 @@ export default function App() {
 
                         <button
                           onClick={() => {
+                            pendingPageScroll.current = true;
                             setCurrentPage(prev => Math.min(prev + 1, totalPages));
-                            const gridElement = document.getElementById('webzine-list');
-                            if (gridElement) gridElement.scrollIntoView({ behavior: 'smooth' });
                           }}
                           disabled={currentPage === totalPages}
                           className={`px-3 py-1.5 border transition-all ${
