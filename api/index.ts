@@ -131,16 +131,23 @@ async function getAllPublicPosts(): Promise<SanitizedPost[]> {
   if (!pendingPosts) {
     pendingPosts = (async () => {
       try {
-        const data = await firestoreRequest(`${FIRESTORE_URL}/posts`);
-        const documents = data?.documents || [];
+        // ListDocuments requires different rule evaluation from the SDK query.
+        // Use the same collection query as the public browser, without a limit
+        // so every published article can enter the HTML and sitemap.
+        const data = await firestoreRequest(`${FIRESTORE_URL}:runQuery`, {
+          structuredQuery: { from: [{ collectionId: 'posts' }] },
+        });
+        if (!Array.isArray(data)) throw new Error('Invalid Firestore query response');
+        const documents = data.filter((row: any) => row.document).map((row: any) => row.document);
         const posts = documents.map((doc: any) => sanitizePost(doc)).filter(Boolean) as SanitizedPost[];
         posts.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
         cachedPosts = posts;
         cachedAt = Date.now();
         return cachedPosts!;
       } catch (err) {
-        console.error('[Server] Firestore fetch failed, returning cached or empty posts:', err);
-        return cachedPosts || [];
+        console.error('[Server] Firestore query failed:', err);
+        if (cachedPosts) return cachedPosts;
+        throw err;
       }
     })().finally(() => { pendingPosts = null; });
   }
@@ -499,7 +506,7 @@ app.get('*', async (req: Request, res: Response) => {
     res.status(200).send(html);
   } catch (e: any) {
     console.error('[Server] Catch-all error:', e);
-    res.status(200).send(`<!DOCTYPE html><html><head><title>${SITE_NAME}</title></head><body><div id="root"><h1>${SITE_NAME}</h1><p>서비스를 불러오는 중입니다...</p></div><script type="module" src="/src/main.tsx"></script></body></html>`);
+    res.status(503).set('Cache-Control', 'no-store').type('text/plain').send('Public articles temporarily unavailable');
   }
 });
 
