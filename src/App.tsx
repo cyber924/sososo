@@ -9,6 +9,8 @@ import PostCard from './components/PostCard';
 import PostDetail from './components/PostDetail';
 import ImageGuard from './components/ImageGuard';
 import { Post, CategoryType } from './types';
+import { fetchOriginalPostsFromHub } from './lib/firebase';
+import { mockPosts } from './mockData';
 import { 
   Database, 
   Sparkles, 
@@ -333,20 +335,27 @@ export default function App() {
     if (showLoadingIndicator) setIsLoading(true);
     let hubPosts: Post[] = [];
     try {
-      const response = await fetch('/api/posts');
-      if (!response.ok) throw new Error(`Public posts HTTP ${response.status}`);
-      hubPosts = await response.json();
+      hubPosts = await fetchOriginalPostsFromHub();
     } catch (error) {
-      console.error('Public posts unavailable:', error);
-      setIsLiveConnected(false);
-      if (showLoadingIndicator) setIsLoading(false);
-      return;
+      console.error('Client Firebase posts fetch failed:', error);
     }
+
+    if (!hubPosts || hubPosts.length === 0) {
+      try {
+        const response = await fetch('/api/posts');
+        if (response.ok) {
+          hubPosts = await response.json();
+        }
+      } catch (error) {
+        console.error('Server API posts fetch failed:', error);
+      }
+    }
+
     if (hubPosts && hubPosts.length > 0) {
       setPosts(hubPosts);
       setIsLiveConnected(true);
     } else {
-      setPosts([]);
+      setPosts(mockPosts);
       setIsLiveConnected(false);
     }
     setLastUpdatedTimestamp(new Date());

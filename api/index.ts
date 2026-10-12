@@ -130,13 +130,18 @@ async function getAllPublicPosts(): Promise<SanitizedPost[]> {
   if (cachedPosts && Date.now() - cachedAt < 60000) return cachedPosts;
   if (!pendingPosts) {
     pendingPosts = (async () => {
-      const rows = await firestoreRequest(`${FIRESTORE_URL}:runQuery`, { structuredQuery: {
-        from: [{ collectionId: 'posts' }],
-        orderBy: [{ field: { fieldPath: 'createdAt' }, direction: 'DESCENDING' }],
-      }});
-      cachedPosts = rows.filter((row: any) => row.document).map((row: any) => sanitizePost(row.document)).filter(Boolean);
-      cachedAt = Date.now();
-      return cachedPosts!;
+      try {
+        const data = await firestoreRequest(`${FIRESTORE_URL}/posts`);
+        const documents = data?.documents || [];
+        const posts = documents.map((doc: any) => sanitizePost(doc)).filter(Boolean) as SanitizedPost[];
+        posts.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        cachedPosts = posts;
+        cachedAt = Date.now();
+        return cachedPosts!;
+      } catch (err) {
+        console.error('[Server] Firestore fetch failed, returning cached or empty posts:', err);
+        return cachedPosts || [];
+      }
     })().finally(() => { pendingPosts = null; });
   }
   return pendingPosts;
@@ -154,7 +159,7 @@ function renderArticle(post: SanitizedPost, siteUrl: string): string {
 function renderPostLinks(posts: SanitizedPost[], siteUrl: string): string {
   return `<main><h1>${SITE_NAME}</h1><ul>${posts.map(post => `<li><a href="${siteUrl}/blog/${encodeURIComponent(post.id)}">${escapeHtml(post.title)}</a><p>${escapeHtml(post.excerpt)}</p></li>`).join('')}</ul></main>`;
 }
-app.get('/api/posts', async (_req, res) => {
+app.get(['/api/posts', '/posts', '/api/posts/'], async (_req, res) => {
   try { res.set('Cache-Control', 'public, max-age=60, s-maxage=60').json(await getAllPublicPosts()); }
   catch (error) { console.error('[Server] Public posts unavailable:', error); res.status(503).set('Cache-Control', 'no-store').json({ error: 'Public posts temporarily unavailable' }); }
 });
@@ -400,14 +405,47 @@ ${safeJson(breadcrumbJsonLd)}
 
 // 5. Catch-all route (Homepage and others)
 app.get('*', async (req: Request, res: Response) => {
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'API endpoint not found' });
+  }
   if (!['/', '/blog', '/api/index'].includes(req.path)) {
     return res.status(404).set('X-Robots-Tag', 'noindex').send('Page not found');
   }
   const siteUrl = getBaseUrl(req);
-  const indexPath = templatePath;
 
   try {
-    let template = fs.readFileSync(indexPath, 'utf-8');
+    let template = '';
+    const pathsToTry = [
+      path.resolve(process.cwd(), 'dist/index.html'),
+      path.resolve(process.cwd(), 'index.html'),
+      path.resolve(__dirname, '../../dist/index.html'),
+      path.resolve(__dirname, '../../index.html'),
+    ];
+    for (const p of pathsToTry) {
+      try {
+        if (fs.existsSync(p)) {
+          template = fs.readFileSync(p, 'utf-8');
+          break;
+        }
+      } catch {}
+    }
+    if (!template) {
+      template = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>${SITE_NAME}</title>
+<!-- SSR_HEAD_START -->
+<!-- SSR_HEAD_END -->
+</head>
+<body>
+<div id="root"></div>
+<!-- SSR_BODY_STATE -->
+<script type="module" src="/src/main.tsx"></script>
+</body>
+</html>`;
+    }
 
     const homeHead = `
     <title>${SITE_NAME} - 전문적인 내용과 지식을 담은 명품 웹진</title>
@@ -442,14 +480,26 @@ app.get('*', async (req: Request, res: Response) => {
     `.trim();
 
     let html = template;
-    html = html.replace(/<!-- SSR_HEAD_START -->[\s\S]*?<!-- SSR_HEAD_END -->/, homeHead);
-    html = html.replace(/<!-- SSR_BODY_STATE -->/, homeState);
-    html = html.replace('<div id="root"></div>', `<div id="root">${renderPostLinks(posts, siteUrl)}</div>`);
+    if (html.includes('<!-- SSR_HEAD_START -->')) {
+      html = html.replace(/<!-- SSR_HEAD_START -->[\s\S]*?<!-- SSR_HEAD_END -->/, homeHead);
+    } else {
+      html = html.replace('</head>', `${homeHead}\n</head>`);
+    }
+
+    if (html.includes('<!-- SSR_BODY_STATE -->')) {
+      html = html.replace(/<!-- SSR_BODY_STATE -->/, homeState);
+    } else {
+      html = html.replace('</body>', `${homeState}\n</body>`);
+    }
+
+    if (html.includes('<div id="root"></div>')) {
+      html = html.replace('<div id="root"></div>', `<div id="root">${renderPostLinks(posts, siteUrl)}</div>`);
+    }
 
     res.status(200).send(html);
   } catch (e: any) {
     console.error('[Server] Catch-all error:', e);
-    res.status(500).send('Server Error loading homepage');
+    res.status(200).send(`<!DOCTYPE html><html><head><title>${SITE_NAME}</title></head><body><div id="root"><h1>${SITE_NAME}</h1><p>서비스를 불러오는 중입니다...</p></div><script type="module" src="/src/main.tsx"></script></body></html>`);
   }
 });
 

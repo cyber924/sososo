@@ -70,23 +70,20 @@ function calculateReadTime(content: string): string {
 export async function fetchOriginalPostsFromHub(): Promise<Post[]> {
   try {
     const postsRef = collection(db, "posts");
-    // Query sorted by creation date descending
-    const q = query(postsRef, orderBy("createdAt", "desc"));
-    const querySnapshot = await getDocs(q);
+    const querySnapshot = await getDocs(postsRef);
     
     const mappedPosts: Post[] = [];
     
     querySnapshot.forEach((doc) => {
       const data = doc.data();
+      if (data.isPublished === false || data.visibility === 'private' || data.visibility === 'draft' || data.status === 'draft') {
+        return;
+      }
       
-      // Determine final category (defaulting to IT if unknown)
       const rawCategory = data.category || '기술/IT';
       const mappedCategory = categoryMap[rawCategory] || 'IT';
-      
-      // Convert summary/excerpt
       const excerpt = data.summary || data.excerpt || '상세 보기 기사 본문을 참조하십시오.';
       
-      // Cover image fallback matching categories elegantly
       const defaultImages: Record<CategoryType, string> = {
         '경제': 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&q=80&w=800',
         '드라마': 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?auto=format&fit=crop&q=80&w=800',
@@ -98,7 +95,6 @@ export async function fetchOriginalPostsFromHub(): Promise<Post[]> {
       };
       const imageUrl = data.coverImage || data.imageUrl || defaultImages[mappedCategory];
       
-      // Parse author field robustly (handles user profile objects or simple strings)
       let finalAuthor = 'AI 오리지널 콘텐츠';
       if (data.author) {
         if (typeof data.author === 'object' && data.author !== null) {
@@ -108,6 +104,17 @@ export async function fetchOriginalPostsFromHub(): Promise<Post[]> {
         }
       }
       
+      const timeVal = data.publishedAt || data.publishAt || data.createdAt;
+      let timeNum = 0;
+      if (timeVal) {
+        if (typeof timeVal.toDate === 'function') timeNum = timeVal.toDate().getTime();
+        else if (typeof timeVal.seconds === 'number') timeNum = timeVal.seconds * 1000;
+        else {
+          const parsed = new Date(timeVal).getTime();
+          if (!isNaN(parsed)) timeNum = parsed;
+        }
+      }
+
       mappedPosts.push({
         id: doc.id,
         title: typeof data.title === 'string' ? data.title : '무제 기사',
@@ -117,16 +124,18 @@ export async function fetchOriginalPostsFromHub(): Promise<Post[]> {
         category: mappedCategory,
         imageUrl: imageUrl,
         author: finalAuthor,
-        createdAt: formatCreatedAt(data.createdAt),
+        createdAt: formatCreatedAt(timeVal?.toDate ? timeVal.toDate().toISOString() : timeVal),
         readTime: calculateReadTime(typeof data.content === 'string' ? data.content : ''),
-        featured: false, // will designate later based on views/newest
+        featured: false,
         views: Number(data.views) || 0,
-        tags: Array.isArray(data.tags) ? data.tags.map(t => String(t)) : ['에디토리얼', '중앙허브']
-      });
+        tags: Array.isArray(data.tags) ? data.tags.map(t => String(t)) : ['에디토리얼', '중앙허브'],
+        _timestamp: timeNum
+      } as any);
     });
 
+    mappedPosts.sort((a: any, b: any) => (b._timestamp || 0) - (a._timestamp || 0));
+
     if (mappedPosts.length > 0) {
-      // Dynamically select a featured candidate from recent posts rather than freezing on the highest view post
       const candidateIndex = Math.floor(Math.random() * Math.min(mappedPosts.length, 5));
       mappedPosts[candidateIndex].featured = true;
     }
@@ -134,7 +143,6 @@ export async function fetchOriginalPostsFromHub(): Promise<Post[]> {
     return mappedPosts;
   } catch (error) {
     console.error("[B Site Engine] Failed to fetch data from central AI hub:", error);
-    // Return empty array to trigger mock fallback gracefully
     return [];
   }
 }
