@@ -817,7 +817,7 @@ export default function App() {
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="bg-[#0b4e33] border border-[#14724b] text-emerald-300 font-mono text-[9px] md:text-[10px] tracking-wider font-extrabold px-3 py-1 rounded-full flex items-center gap-1.5 shadow-sm">
                     <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-ping" />
-                    <span>SOSO PREMIUM EDITORIAL</span>
+                    <span>DISKMO PREMIUM EDITORIAL</span>
                   </div>
                   <div className="bg-white/10 text-emerald-100 font-mono text-[9px] md:text-[10px] px-3 py-1 rounded-full border border-white/5 backdrop-blur-sm">
                     전문지식 & 명품 오피니언 // SECURE
