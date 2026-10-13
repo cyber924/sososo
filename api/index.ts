@@ -42,7 +42,15 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const SITE_NAME = '소소한 웹진';
-const PRODUCTION_URL = 'https://sososo-three.vercel.app';
+const PRODUCTION_URL = (process.env.SITE_URL || 'https://diskmo.co.kr').replace(/\/+$/, '');
+
+// Keep paths and query strings when the verified custom domain becomes primary.
+app.use((req, res, next) => {
+  if (PRODUCTION_URL === 'https://diskmo.co.kr' && req.hostname === 'sososo-three.vercel.app') {
+    return res.redirect(308, `${PRODUCTION_URL}${req.originalUrl}`);
+  }
+  next();
+});
 
 // Always use production URL in production / Vercel to maintain SEO consistency
 function getBaseUrl(req: Request): string {
@@ -455,10 +463,10 @@ app.get('*', async (req: Request, res: Response) => {
     }
 
     const homeHead = `
-    <title>${SITE_NAME} - 전문적인 내용과 지식을 담은 명품 웹진</title>
+    <title>${SITE_NAME} | diskmo.co.kr - 깊이 있는 에디토리얼</title>
     <meta name="description" content="${SITE_NAME}은 전문적인 내용과 지식을 깊이 있게 전하는 프리미엄 명품 에디토리얼 웹진 서비스입니다." />
     <link rel="canonical" href="${siteUrl}" />
-    <meta property="og:title" content="${SITE_NAME} - 전문적인 내용과 지식을 담은 명품 웹진" />
+    <meta property="og:title" content="${SITE_NAME} | diskmo.co.kr - 깊이 있는 에디토리얼" />
     <meta property="og:description" content="${SITE_NAME}은 전문적인 내용과 지식을 깊이 있게 전하는 프리미엄 명품 에디토리얼 웹진 서비스입니다." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="${siteUrl}" />

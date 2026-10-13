@@ -20,7 +20,7 @@ export default function PostDetail({ post, onBack }: PostDetailProps) {
 
   // Dynamic Client-side SEO update for SPA transitions
   useEffect(() => {
-    const siteUrl = window.location.origin;
+    const siteUrl = window.__INITIAL_SITE_URL__ || window.location.origin;
     const canonicalUrl = `${siteUrl}/blog/${encodeURIComponent(post.id)}`;
     const siteName = '소소한 웹진';
     const pageTitle = `${post.title} | ${siteName}`;

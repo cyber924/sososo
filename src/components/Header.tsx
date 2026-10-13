@@ -126,7 +126,7 @@ export default function Header({
         <div className="flex flex-col lg:flex-row justify-between items-center text-[11px] tracking-widest text-neutral-500 font-mono border-b border-neutral-200 pb-2.5 mb-4 md:mb-6 gap-3">
           <div className="flex items-center gap-2">
             <span className="inline-block w-1.5 h-1.5 bg-rose-600 rounded-full animate-pulse" />
-            <span className="font-bold text-neutral-800">SOSO WEBZINE</span>
+            <span className="font-bold text-neutral-800">DISKMO WEBZINE</span>
           </div>
           
           {/* Live Market/Trend Indices */}
@@ -161,6 +161,7 @@ export default function Header({
           <h1 className="font-serif font-bold text-3xl sm:text-4xl md:text-5xl tracking-tight text-neutral-950 uppercase selection:bg-rose-500 selection:text-white leading-none">
             소소한 웹진
           </h1>
+          <p className="text-xs sm:text-sm font-mono tracking-[0.15em] text-neutral-600">diskmo.co.kr</p>
           <div className="text-[10px] sm:text-[11px] font-mono tracking-[0.25em] text-rose-600 font-bold uppercase pb-1">
             ■ THE COGNITIVE CHRONICLE & ESSAYS
           </div>

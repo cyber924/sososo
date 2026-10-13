@@ -683,7 +683,7 @@ export default function App() {
     setIsPostNotFound(false);
     if (typeof window !== 'undefined') {
       window.history.pushState(null, '', '/');
-      document.title = '소소한 웹진 - 전문적인 내용과 지식을 담은 명품 웹진';
+      document.title = '소소한 웹진 | diskmo.co.kr - 깊이 있는 에디토리얼';
       const descMeta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
       if (descMeta) descMeta.content = '소소한 웹진은 전문적인 내용과 지식을 깊이 있게 전하는 프리미엄 명품 에디토리얼 웹진 서비스입니다.';
       let canonicalLink = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
@@ -692,7 +692,7 @@ export default function App() {
         canonicalLink.rel = 'canonical';
         document.head.appendChild(canonicalLink);
       }
-      canonicalLink.href = window.location.origin;
+      canonicalLink.href = window.__INITIAL_SITE_URL__ || window.location.origin;
       const robotsMeta = document.querySelector<HTMLMetaElement>('meta[name="robots"]');
       if (robotsMeta) robotsMeta.content = 'index, follow';
 
@@ -1662,7 +1662,7 @@ export default function App() {
           <footer className="border-t-4 border-neutral-900 bg-white py-8 mt-16 text-neutral-500 text-xs font-mono">
             <div className="max-w-7xl mx-auto px-4 md:px-8 flex flex-col md:flex-row justify-between items-center gap-4">
               <div className="space-y-1 text-center md:text-left">
-                <span className="font-serif font-bold text-base text-neutral-950 block">소소한 웹진</span>
+                <span className="font-serif font-bold text-base text-neutral-950 block">소소한 웹진 <span className="font-mono text-xs text-neutral-500">diskmo.co.kr</span></span>
                 <p className="max-w-md text-neutral-400 font-sans leading-relaxed text-[10px]">
                   본 서비스는 로그인 없이 누구에게나 공개된 프리미엄 지식 아카이브입니다. 
                   모든 게시글은 소소한 웹진 파이어베이스 DB를 통해 수집되며, 모던 에디토리얼 방식으로 배치됩니다.
