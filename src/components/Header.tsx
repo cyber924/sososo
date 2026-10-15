@@ -25,7 +25,9 @@ export default function Header({
   lastUpdated
 }: HeaderProps) {
   const categories: (CategoryType | '전체')[] = ['전체', '경제', '드라마', '스포츠', 'IT', '사회', '랭킹', '추천'];
-  const [today, setToday] = useState('');
+  const [today, setToday] = useState(() => lastUpdated?.isoString
+    ? new Date(lastUpdated.isoString).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long', timeZone: 'Asia/Seoul' })
+    : '');
   const [weather, setWeather] = useState<{ temp: number; description: string; emoji: string } | null>(null);
   const [marketIndices, setMarketIndices] = useState({
     kospi: { value: 2584.10, change: 1.15 },
@@ -46,6 +48,7 @@ export default function Header({
       month: 'long',
       day: 'numeric',
       weekday: 'long',
+      timeZone: 'Asia/Seoul',
     };
     setToday(new Date().toLocaleDateString('ko-KR', options));
 

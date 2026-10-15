@@ -12,7 +12,6 @@ interface ImageGuardProps extends React.ImgHTMLAttributes<HTMLImageElement> {
 
 export default function ImageGuard({ category, postId = '', src, alt, className, ...props }: ImageGuardProps) {
   const [hasError, setHasError] = useState(false);
-  const [currentSrc, setCurrentSrc] = useState<string | null>(null);
 
   // 100% Guaranteed-to-work, permanent, high-resolution premium Unsplash images curated for each theme.
   // Each category has 3 diverse top-tier photo assets for rich layout variance.
@@ -66,6 +65,11 @@ export default function ImageGuard({ category, postId = '', src, alt, className,
     const index = Math.abs(hash) % pool.length;
     return pool[index];
   };
+
+  const [currentSrc, setCurrentSrc] = useState<string>(() => {
+    const cleanSrc = src?.trim();
+    return cleanSrc && cleanSrc !== 'undefined' && cleanSrc !== 'null' ? cleanSrc : getFallbackImage();
+  });
 
   // Determine actual image source on load
   useEffect(() => {

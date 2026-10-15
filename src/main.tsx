@@ -1,10 +1,10 @@
-import {StrictMode} from 'react';
-import {createRoot} from 'react-dom/client';
+import { StrictMode } from 'react';
+import { createRoot, hydrateRoot } from 'react-dom/client';
 import App from './App.tsx';
+import type { InitialPageData } from './App.tsx';
 import './index.css';
-
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+const root = document.getElementById('root')!;
+const initialData = (window as any).__INITIAL_PAGE__ as InitialPageData | undefined;
+const application = <StrictMode><App initialData={initialData} /></StrictMode>;
+if (initialData && root.hasChildNodes()) hydrateRoot(root, application);
+else createRoot(root).render(application);

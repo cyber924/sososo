@@ -215,8 +215,8 @@ export default function PostDetail({ post, onBack }: PostDetailProps) {
 
           // 1. Elegant Drop Cap for the first paragraph
           if (index === 0 && cleanPara.length > 2) {
-            const firstChar = cleanPara[0];
-            const remainingText = cleanPara.slice(1);
+            const firstChar = Array.from(cleanPara)[0];
+            const remainingText = cleanPara.slice(firstChar.length);
             return (
               <p key={index} className="text-neutral-800 leading-relaxed text-justify mb-4 first-letter:float-left first-letter:text-5xl first-letter:font-black first-letter:text-rose-600 first-letter:mr-2.5 first-letter:mt-1 font-serif">
                 <span className="text-5xl font-serif font-black text-rose-600 float-left mr-2.5 mt-1 leading-none select-none">
@@ -263,7 +263,7 @@ export default function PostDetail({ post, onBack }: PostDetailProps) {
 
   // Replace raw emojis with modern inline highlighted badges
   const formatEmojisAndSentences = (text: string) => {
-    const emojiRegex = /([📌🚀💡🔑🎨🛠️📢✍️✨🏆🔥🌟🧭🎭🔍💎📝🎬🥊📣🤝📢])/g;
+    const emojiRegex = /(📌|🚀|💡|🔑|🎨|🛠️|📢|✍️|✨|🏆|🔥|🌟|🧭|🎭|🔍|💎|📝|🎬|🥊|📣|🤝)/gu;
     if (!emojiRegex.test(text)) {
       return text;
     }

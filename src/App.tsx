@@ -37,15 +37,25 @@ declare global {
   }
 }
 
-export default function App() {
-  const [posts, setPosts] = useState<Post[]>(() => window.__INITIAL_POSTS__ || []);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isLiveConnected, setIsLiveConnected] = useState(false);
+export interface InitialPageData {
+  posts: Post[];
+  post: Post | null;
+  notFound?: boolean;
+  renderedAt: string;
+}
+
+export default function App({ initialData }: { initialData?: InitialPageData } = {}) {
+  const [renderedAt] = useState(() => initialData?.renderedAt || new Date().toISOString());
+  const pageDate = new Date(Date.parse(renderedAt) + 9 * 60 * 60 * 1000);
+  const [posts, setPosts] = useState<Post[]>(() => initialData?.posts || (typeof window !== "undefined" ? window.__INITIAL_POSTS__ : []) || []);
+  const [isLoading, setIsLoading] = useState(!initialData);
+  const [isLiveConnected, setIsLiveConnected] = useState(Boolean(initialData));
   const [activeCategory, setActiveCategory] = useState<CategoryType | '전체'>('전체');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Initial SSR state hydration for /blog/:id
   const [selectedPost, setSelectedPost] = useState<Post | null>(() => {
+    if (initialData) return initialData.post;
     if (typeof window !== 'undefined' && window.__INITIAL_POST__) {
       return window.__INITIAL_POST__;
     }
@@ -53,6 +63,7 @@ export default function App() {
   });
 
   const [isPostNotFound, setIsPostNotFound] = useState<boolean>(() => {
+    if (initialData) return Boolean(initialData.notFound);
     if (typeof window !== 'undefined' && window.__INITIAL_POST_NOT_FOUND__) {
       return true;
     }
@@ -354,7 +365,7 @@ export default function App() {
     if (hubPosts && hubPosts.length > 0) {
       setPosts(hubPosts);
       setIsLiveConnected(true);
-    } else {
+    } else if (!initialData) {
       setPosts(mockPosts);
       setIsLiveConnected(false);
     }
@@ -363,7 +374,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    loadHubPosts(true);
+    loadHubPosts(!initialData);
   }, []);
   
   // Custom mock author list
@@ -428,16 +439,16 @@ export default function App() {
 
   // Dynamic system stats based on actual system day & active real views sum
   const systemStats = useMemo(() => {
-    const currentDate = new Date();
+    const currentDate = pageDate;
     const daysOfWeek = ["일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일"];
-    const currentDayName = daysOfWeek[currentDate.getDay()];
+    const currentDayName = daysOfWeek[currentDate.getUTCDay()];
     
     // Sum real views of current active posts
     const realTotalViews = posts.reduce((sum, p) => sum + p.views, 0) + 14831; // Base padding + real views
     
     // Vary demographics and retention slightly based on system day to feel dynamic
     const baseRetention = "5분 42초";
-    const dynamicRetention = currentDate.getDay() === 0 || currentDate.getDay() === 6 
+    const dynamicRetention = currentDate.getUTCDay() === 0 || currentDate.getUTCDay() === 6
       ? "7분 15초 (주말 여유 숙독 흐름)"
       : "4분 55초 (주중 빠른 트렌드 속독)";
 
@@ -445,28 +456,28 @@ export default function App() {
       dayName: currentDayName,
       totalViews: realTotalViews,
       retention: dynamicRetention,
-      updateMonth: String(currentDate.getMonth() + 1).padStart(2, '0'),
-      updateDay: String(currentDate.getDate()).padStart(2, '0')
+      updateMonth: String(currentDate.getUTCMonth() + 1).padStart(2, '0'),
+      updateDay: String(currentDate.getUTCDate()).padStart(2, '0')
     };
   }, [posts]);
 
   // Last Updated Date & Time calculation for Content freshness & Google Search Indexing
-  const [lastUpdatedTimestamp, setLastUpdatedTimestamp] = useState<Date>(() => new Date());
+  const [lastUpdatedTimestamp, setLastUpdatedTimestamp] = useState<Date>(() => new Date(renderedAt));
 
   const lastUpdatedInfo = useMemo(() => {
-    const d = lastUpdatedTimestamp;
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    const hours = String(d.getHours()).padStart(2, '0');
-    const minutes = String(d.getMinutes()).padStart(2, '0');
-    const seconds = String(d.getSeconds()).padStart(2, '0');
+    const d = new Date(lastUpdatedTimestamp.getTime() + 9 * 60 * 60 * 1000);
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    const hours = String(d.getUTCHours()).padStart(2, '0');
+    const minutes = String(d.getUTCMinutes()).padStart(2, '0');
+    const seconds = String(d.getUTCSeconds()).padStart(2, '0');
 
     return {
       date: `${year}.${month}.${day}`,
       time: `${hours}:${minutes}:${seconds}`,
       formatted: `${year}.${month}.${day} ${hours}:${minutes}:${seconds}`,
-      isoString: d.toISOString(),
+      isoString: lastUpdatedTimestamp.toISOString(),
       displayKorean: `${year}년 ${month}월 ${day}일 ${hours}:${minutes} (KST)`
     };
   }, [lastUpdatedTimestamp]);
@@ -784,7 +795,7 @@ export default function App() {
             </div>
           </main>
           <footer className="border-t border-neutral-200 py-6 text-center text-xs font-mono text-neutral-500">
-            © {new Date().getFullYear()} 소소한 웹진. All rights reserved.
+            © {pageDate.getUTCFullYear()} 소소한 웹진. All rights reserved.
           </footer>
         </div>
       ) : selectedPost ? (
@@ -1181,7 +1192,7 @@ export default function App() {
                               {/* SVG Sparkline (Shape changes deterministically based on what day of week it is!) */}
                               <svg className="absolute inset-x-0 bottom-0 h-16 w-full" preserveAspectRatio="none">
                                 <path
-                                  d={`M 0 60 Q 50 ${new Date().getDay() * 7 + 10}, 100 40 T 200 ${new Date().getDay() * 4 + 15} T 300 50 T 400 ${35 - new Date().getDay() * 3} T 500 35 Q 550 50, 600 55`}
+                                  d={`M 0 60 Q 50 ${pageDate.getUTCDay() * 7 + 10}, 100 40 T 200 ${pageDate.getUTCDay() * 4 + 15} T 300 50 T 400 ${35 - pageDate.getUTCDay() * 3} T 500 35 Q 550 50, 600 55`}
                                   fill="none"
                                   stroke="#e11d48"
                                   strokeWidth="2"
@@ -1191,7 +1202,7 @@ export default function App() {
                               {/* Vertical labels and bars for visualization */}
                               <div className="flex flex-col items-center z-10">
                                 <span className="text-[8px] font-mono text-neutral-400">08:00</span>
-                                <div className={`w-1 h-8 rounded-t ${new Date().getDay() % 2 === 0 ? 'bg-rose-600/30' : 'bg-rose-600/10'}`} />
+                                <div className={`w-1 h-8 rounded-t ${pageDate.getUTCDay() % 2 === 0 ? 'bg-rose-600/30' : 'bg-rose-600/10'}`} />
                               </div>
                               <div className="flex flex-col items-center z-10">
                                 <span className="text-[8px] font-mono text-neutral-400">12:00</span>
@@ -1203,7 +1214,7 @@ export default function App() {
                               </div>
                               <div className="flex flex-col items-center z-10">
                                 <span className="text-[8px] font-mono text-neutral-400">21:00</span>
-                                <div className={`w-1 h-16 rounded-t ${new Date().getDay() % 2 !== 0 ? 'bg-rose-600/40' : 'bg-rose-600/20'}`} />
+                                <div className={`w-1 h-16 rounded-t ${pageDate.getUTCDay() % 2 !== 0 ? 'bg-rose-600/40' : 'bg-rose-600/20'}`} />
                               </div>
                               <div className="flex flex-col items-center z-10">
                                 <span className="text-[8px] font-mono text-neutral-400">01:00</span>

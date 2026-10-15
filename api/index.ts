@@ -7,7 +7,9 @@ import express from 'express';
 import type { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { renderPage } from '../src/server/render.js';
+import type { InitialPageData } from '../src/App.js';
+import type { Post as PostForRender } from '../src/types.js';
 // Server reads use Firestore HTTPS directly: no browser TypeScript imports,
 // gRPC transport, service-account credentials, or offline cache fallback.
 const FIRESTORE_URL = 'https://firestore.googleapis.com/v1/projects/weather-49c44/databases/ai-studio-aiwebzineblog-dadec710-29d0-43c4-a8a2-3bed7e263772/documents';
@@ -37,8 +39,7 @@ async function firestoreRequest(url: string, body?: any): Promise<any> {
   return response.json();
 }
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const sourceDirectory = process.cwd();
 
 const app = express();
 const SITE_NAME = '소소한 웹진';
@@ -164,16 +165,6 @@ async function getAllPublicPosts(): Promise<SanitizedPost[]> {
 function safeJson(value: any): string {
   return JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
 }
-function renderArticle(post: SanitizedPost, siteUrl: string): string {
-  // Keep source content as text here; React renders the designed view afterwards.
-  // Escaping prevents stored HTML/scripts from executing in the server preview.
-  const paragraphs = post.content.replace(/<[^>]*>/g, '').split(/\n+/).filter(Boolean)
-    .map(text => `<p>${escapeHtml(text)}</p>`).join('');
-  return `<article><a href="${siteUrl}/">${SITE_NAME}</a><h1>${escapeHtml(post.title)}</h1><p>${escapeHtml(post.excerpt)}</p><img src="${escapeHtml(post.imageUrl)}" alt="${escapeHtml(post.title)}" style="max-width:100%">${paragraphs}</article>`;
-}
-function renderPostLinks(posts: SanitizedPost[], siteUrl: string): string {
-  return `<main><h1>${SITE_NAME}</h1><ul>${posts.map(post => `<li><a href="${siteUrl}/blog/${encodeURIComponent(post.id)}">${escapeHtml(post.title)}</a><p>${escapeHtml(post.excerpt)}</p></li>`).join('')}</ul></main>`;
-}
 app.get(['/api/posts', '/posts', '/api/posts/'], async (_req, res) => {
   try { res.set('Cache-Control', 'public, max-age=60, s-maxage=60').json(await getAllPublicPosts()); }
   catch (error) { console.error('[Server] Public posts unavailable:', error); res.status(503).set('Cache-Control', 'no-store').json({ error: 'Public posts temporarily unavailable' }); }
@@ -296,6 +287,7 @@ app.get('/blog/:id', async (req: Request, res: Response) => {
 
     // Case A: Post not found
     if (!post) {
+      const pageData: InitialPageData = { posts: [], post: null, notFound: true, renderedAt: new Date().toISOString() };
       const notFoundHead = `
     <title>글을 찾을 수 없습니다 | ${SITE_NAME}</title>
     <meta name="description" content="요청하신 게시글이 존재하지 않거나 삭제되었습니다." />
@@ -309,6 +301,7 @@ app.get('/blog/:id', async (req: Request, res: Response) => {
     <script>
       window.__INITIAL_POST__ = null;
       window.__INITIAL_POST_NOT_FOUND__ = true;
+      window.__INITIAL_PAGE__ = ${safeJson(pageData)};
       window.__INITIAL_SITE_URL__ = ${JSON.stringify(siteUrl)};
     </script>
       `.trim();
@@ -317,6 +310,7 @@ app.get('/blog/:id', async (req: Request, res: Response) => {
       html = html.replace(/<!-- SSR_HEAD_START -->[\s\S]*?<!-- SSR_HEAD_END -->/, notFoundHead);
       html = html.replace(/<!-- SSR_BODY_STATE -->/, notFoundState);
 
+      html = html.replace('<div id="root"></div>', `<div id="root">${renderPage(pageData)}</div>`);
       return res.status(404).send(html);
     }
 
@@ -398,9 +392,11 @@ ${safeJson(breadcrumbJsonLd)}
     </script>
     `.trim();
 
+    const pageData: InitialPageData = { posts: [post as PostForRender], post: post as PostForRender, renderedAt: new Date().toISOString() };
     const postState = `
     <script>
       window.__INITIAL_POST__ = ${safeJson(post)};
+      window.__INITIAL_PAGE__ = ${safeJson(pageData)};
       window.__INITIAL_POST_NOT_FOUND__ = false;
       window.__INITIAL_SITE_URL__ = ${JSON.stringify(siteUrl)};
     </script>
@@ -409,7 +405,7 @@ ${safeJson(breadcrumbJsonLd)}
     let html = template;
     html = html.replace(/<!-- SSR_HEAD_START -->[\s\S]*?<!-- SSR_HEAD_END -->/, postHead);
     html = html.replace(/<!-- SSR_BODY_STATE -->/, postState);
-    html = html.replace('<div id="root"></div>', `<div id="root">${renderArticle(post, siteUrl)}</div>`);
+    html = html.replace('<div id="root"></div>', `<div id="root">${renderPage(pageData)}</div>`);
 
     return res.status(200).send(html);
   } catch (err: any) {
@@ -433,8 +429,8 @@ app.get('*', async (req: Request, res: Response) => {
     const pathsToTry = [
       path.resolve(process.cwd(), 'dist/index.html'),
       path.resolve(process.cwd(), 'index.html'),
-      path.resolve(__dirname, '../../dist/index.html'),
-      path.resolve(__dirname, '../../index.html'),
+      path.resolve(sourceDirectory, '../../dist/index.html'),
+      path.resolve(sourceDirectory, '../../index.html'),
     ];
     for (const p of pathsToTry) {
       try {
@@ -485,10 +481,12 @@ app.get('*', async (req: Request, res: Response) => {
     `.trim();
 
     const posts = await getAllPublicPosts();
+    const pageData: InitialPageData = { posts: posts as PostForRender[], post: null, renderedAt: new Date().toISOString() };
     const homeState = `
     <script>
       window.__INITIAL_POST__ = null;
       window.__INITIAL_POSTS__ = ${safeJson(posts)};
+      window.__INITIAL_PAGE__ = ${safeJson(pageData)};
       window.__INITIAL_POST_NOT_FOUND__ = false;
       window.__INITIAL_SITE_URL__ = ${JSON.stringify(siteUrl)};
     </script>
@@ -508,7 +506,7 @@ app.get('*', async (req: Request, res: Response) => {
     }
 
     if (html.includes('<div id="root"></div>')) {
-      html = html.replace('<div id="root"></div>', `<div id="root">${renderPostLinks(posts, siteUrl)}</div>`);
+      html = html.replace('<div id="root"></div>', `<div id="root">${renderPage(pageData)}</div>`);
     }
 
     res.status(200).send(html);
