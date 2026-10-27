@@ -267,6 +267,12 @@ const isProd = process.env.NODE_ENV === 'production' || !!process.env.VERCEL;
 const templatePath = isProd ? path.resolve(process.cwd(), 'dist/index.html') : path.resolve(process.cwd(), 'index.html');
 app.use(express.static(path.resolve(process.cwd(), 'dist'), { index: false }));
 
+// Legacy popular listing from the previous site now uses the current article list.
+// Register before /blog/:id so "popular" is never treated as a post ID.
+app.get('/blog/popular', (req: Request, res: Response) => {
+  return res.redirect(301, `${getBaseUrl(req)}/blog`);
+});
+
 // 4. Detailed Blog Post route with Full SSR Meta Pre-rendering & Real 404
 app.get('/blog/:id', async (req: Request, res: Response) => {
   const postId = req.params.id;
